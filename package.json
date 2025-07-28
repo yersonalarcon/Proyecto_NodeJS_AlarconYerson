@@ -1,0 +1,24 @@
+{
+  "name": "proyecto_nodejs_alarconyerson",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type":"module" ,
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yersonalarcon/Proyecto_NodeJS_AlarconYerson.git"
+  },
+  "author": "yersonalarcon",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/yersonalarcon/Proyecto_NodeJS_AlarconYerson/issues"
+  },
+  "homepage": "https://github.com/yersonalarcon/Proyecto_NodeJS_AlarconYerson#readme",
+  "description": "",
+  "dependencies": {
+    "mongodb": "^6.18.0",
+    "readline": "^1.3.0"
+  }
+}
