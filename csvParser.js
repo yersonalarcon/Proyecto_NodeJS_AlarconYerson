@@ -115,7 +115,7 @@ function parseLine(line) {
 }
 
 /**
- * Procesa una línea individual del CSV
+ * Procesa una línea individual del CSV, construyendo objetos anidados.
  */
 function processLine(line, headers, fieldTypes) {
     const values = parseLine(line);
@@ -123,26 +123,43 @@ function processLine(line, headers, fieldTypes) {
 
     headers.forEach((header, index) => {
         const rawValue = index < values.length ? values[index] : '';
-        doc[header] = transformValue(header, rawValue, fieldTypes);
+        // Usa setNestedValue para manejar la notación de punto en los encabezados
+        setNestedValue(doc, header, transformValue(header, rawValue, fieldTypes));
     });
+    
+    // No se necesita conversión especial para _id aquí, ya que transformValue lo maneja a través de fieldTypes
+    // y setNestedValue ya ha colocado el valor transformado en doc._id
+    
+    return doc;
+}
 
-    // Conversión especial para _id
-    if (doc._id) {
-        try {
-            doc._id = new ObjectId(doc._id);
-        } catch (error) {
-            throw new Error(`ID inválido: ${doc._id} - Debe ser un ObjectId válido`);
+/**
+ * Función auxiliar para establecer valores en un objeto anidado a partir de una ruta con puntos.
+ */
+function setNestedValue(obj, path, value) {
+    const parts = path.split('.');
+    let current = obj;
+    for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (i === parts.length - 1) {
+            current[part] = value;
+        } else {
+            // Si el valor actual no es un objeto o es un array (lo que indicaría una estructura incorrecta para anidación),
+            // lo inicializamos como un objeto vacío.
+            if (!current[part] || typeof current[part] !== 'object' || Array.isArray(current[part])) {
+                current[part] = {};
+            }
+            current = current[part];
         }
     }
-
-    return doc;
 }
 
 /**
  * Transforma un valor según su tipo esperado
  */
 function transformValue(header, rawValue, fieldTypes) {
-    if (rawValue === '') return null;
+    // Si la cadena está vacía, devuelve null. Esto es crucial para ObjectId, Date, Number.
+    if (rawValue === '') return null; 
 
     const value = rawValue.trim();
     const fieldType = fieldTypes[header.toLowerCase()] || 'auto';
@@ -150,10 +167,13 @@ function transformValue(header, rawValue, fieldTypes) {
     try {
         switch (fieldType.toLowerCase()) {
             case 'objectid':
+                // Si el valor es null, new ObjectId(null) lanzaría un error. Ya lo manejamos arriba.
                 return new ObjectId(value);
 
             case 'date':
-                return new Date(value);
+                const date = new Date(value);
+                if (isNaN(date.getTime())) throw new Error(`No es una fecha válida: ${value}`);
+                return date;
 
             case 'number':
                 const num = Number(value);
@@ -173,7 +193,8 @@ function transformValue(header, rawValue, fieldTypes) {
                 return autoDetectType(value);
         }
     } catch (error) {
-        throw new Error(`Campo '${header}': ${error.message}`);
+        // Captura errores específicos de tipo y lanza un error más descriptivo
+        throw new Error(`Campo '${header}' con valor '${rawValue}': ${error.message}`);
     }
 }
 

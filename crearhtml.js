@@ -1,4 +1,6 @@
 // crearhtml.js
+import { ObjectId } from 'mongodb'; // Importa ObjectId para poder verificar su tipo
+
 export function crearHtml(tipoReporte, datos) {
     let html = `<!DOCTYPE html>
     <html lang="es">
@@ -33,20 +35,41 @@ export function crearHtml(tipoReporte, datos) {
     return html;
 }
 
-// Asegúrate de que esta función esté definida y exportada
 function getLogoBase64() {
-    // Logo simple de Acme en SVG convertido a base64
     return 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMTAwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2U3NGMzYyIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSJ3aGl0ZSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXdlaWdodD0iYm9sZCIgZm9udC1zaXplPSIyMCI+QUNNRTwvdGV4dD48L3N2Zz4=';
 }
+
 function getReportTitle(tipoReporte) {
     const titles = {
         'empleados': 'Listado de Empleados por Área y Cargo',
         'nomina-detalle': 'Detalle de Nómina',
         'empleados-transporte': 'Empleados con Derecho a Auxilio de Transporte',
-        'nomina-resumen': 'Resumen de Nómina por Código',
+        'nomina-resumen': 'Resumen de Nómina por Concepto',
         'error': 'Error en el reporte'
     };
     return titles[tipoReporte] || 'Reporte de Acme Corporate';
+}
+
+/**
+ * Función auxiliar para formatear valores antes de mostrarlos en HTML.
+ * Convierte ObjectIds a strings y maneja valores nulos/indefinidos.
+ * @param {*} value El valor a formatear.
+ * @returns {string} El valor formateado como string.
+ */
+function formatValueForHtml(value) {
+    if (value === null || value === undefined) {
+        return 'N/A';
+    }
+    // Verifica si es un ObjectId de MongoDB y lo convierte a string hexadecimal
+    if (typeof value === 'object' && value instanceof ObjectId) {
+        return value.toHexString();
+    }
+    // Si es una fecha, puedes formatearla si es necesario
+    if (value instanceof Date) {
+        return value.toLocaleDateString(); // O value.toLocaleString() para fecha y hora
+    }
+    // Para otros tipos, simplemente conviértelo a string
+    return value.toString();
 }
 
 function generateReportContent(tipoReporte, datos) {
@@ -71,6 +94,7 @@ function generateErrorReport(errorData) {
     <div class="error-container">
         <h2>${errorData.titulo || 'Error al generar el reporte'}</h2>
         <p class="error-message">${errorData.mensaje || 'Ocurrió un error desconocido'}</p>
+        ${errorData.detalles ? `<div class="error-details">${errorData.detalles}</div>` : ''}
     </div>
     `;
 }
@@ -84,26 +108,20 @@ function generateEmployeeList(empleados) {
         `;
     }
 
-    let html = '<table><thead><tr><th>Área</th><th>Cargo</th><th>Tipo ID</th><th>Número ID</th><th>Nombres</th><th>Apellidos</th><th>Teléfono</th><th>Email</th><th>Género</th><th>Salario Base</th></tr></thead><tbody>';
+    let html = '<table><thead><tr><th>Área</th><th>Cargo</th><th>Tipo ID</th><th>Número ID</th><th>Nombres</th><th>Apellidos</th><th>Teléfono</th><th>Email</th><th>Género</th></tr></thead><tbody>';
     
     empleados.forEach(emp => {
-        const areaNombre = emp.area?.nombre || 'N/A';
-        const cargoNombre = emp.cargo?.nombre || 'N/A';
-        const infoPersonal = emp.informacion_personal || {};
-        const contrato = emp.contrato || {};
-        
         html += `
         <tr>
-            <td>${areaNombre}</td>
-            <td>${cargoNombre}</td>
-            <td>${infoPersonal.tipo_identificacion || 'N/A'}</td>
-            <td>${infoPersonal.numero_identificacion || 'N/A'}</td>
-            <td>${infoPersonal.nombres || 'N/A'}</td>
-            <td>${infoPersonal.apellidos || 'N/A'}</td>
-            <td>${infoPersonal.telefono || 'N/A'}</td>
-            <td>${infoPersonal.email || 'N/A'}</td>
-            <td>${infoPersonal.genero || 'N/A'}</td>
-            <td>${contrato.salario_base ? '$' + contrato.salario_base.toLocaleString() : 'N/A'}</td>
+            <td>${formatValueForHtml(emp.area_nombre)}</td>
+            <td>${formatValueForHtml(emp.cargo_nombre)}</td>
+            <td>${formatValueForHtml(emp.tipo_identificacion)}</td>
+            <td>${formatValueForHtml(emp.numero_identificacion)}</td>
+            <td>${formatValueForHtml(emp.nombres)}</td>
+            <td>${formatValueForHtml(emp.apellidos)}</td>
+            <td>${formatValueForHtml(emp.telefono)}</td>
+            <td>${formatValueForHtml(emp.email)}</td>
+            <td>${formatValueForHtml(emp.genero)}</td>
         </tr>`;
     });
     
@@ -112,6 +130,207 @@ function generateEmployeeList(empleados) {
     
     return html;
 }
+
+function generatePayrollDetail(datos) { // Cambiamos el nombre del parámetro a 'datos' para ser más claro
+    // El objeto 'datos' aquí es el 'datosReporte' que se genera en index.js
+    // Contiene 'empleado', 'periodo', y 'nomina' como sub-objetos.
+
+    // Desestructuramos para facilitar el acceso
+    const { empleado, periodo, nomina } = datos;
+
+    if (!nomina || !empleado || !periodo) {
+        return `
+        <div class="no-data">
+            <p>No se encontraron datos completos de nómina para generar el reporte.</p>
+        </div>
+        `;
+    }
+
+    let html = `
+    <div class="employee-details">
+        <div class="detail-row">
+            <span class="detail-label">Empleado:</span>
+            <span>${formatValueForHtml(empleado.nombreCompleto)}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Identificación:</span>
+            <span>${formatValueForHtml(empleado.identificacion)}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Cargo:</span>
+            <span>${formatValueForHtml(empleado.cargo)}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Área:</span>
+            <span>${formatValueForHtml(empleado.area)}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Periodo:</span>
+            <span>${formatValueForHtml(periodo.nombreMes)} / ${formatValueForHtml(periodo.año)}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Fecha de Generación:</span>
+            <span>${formatValueForHtml(nomina.fecha_generacion)}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Fecha de Pago:</span>
+            <span>${formatValueForHtml(nomina.fecha_pago)}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Estado:</span>
+            <span>${formatValueForHtml(nomina.estado)}</span>
+        </div>
+    </div>
+    `;
+
+    // Sección de devengados
+    if (nomina.conceptos && nomina.conceptos.length > 0) {
+        html += `
+        <div class="earnings">
+            <h3 class="section-title">Conceptos Devengados</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Descripción</th>
+                        <th>Valor</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+        
+        nomina.conceptos.forEach(concepto => {
+            html += `
+                    <tr>
+                        <td>${formatValueForHtml(concepto.codigo_concepto)}</td>
+                        <td>${formatValueForHtml(concepto.descripcion)}</td>
+                        <td>${concepto.valor !== undefined && concepto.valor !== null ? '$' + concepto.valor.toLocaleString('es-CO') : 'N/A'}</td>
+                    </tr>`;
+        });
+        
+        html += `
+                </tbody>
+            </table>
+            <div class="detail-row total">
+                <span class="detail-label">Total Devengado:</span>
+                <span>${nomina.total_devengado !== undefined && nomina.total_devengado !== null ? '$' + nomina.total_devengado.toLocaleString('es-CO') : 'N/A'}</span>
+            </div>
+        </div>`;
+    } else {
+        html += `
+        <div class="earnings">
+            <h3 class="section-title">Conceptos Devengados</h3>
+            <p>No hay conceptos devengados registrados para esta nómina.</p>
+        </div>`;
+    }
+
+    // Sección de deducciones (si hay novedades)
+    if (nomina.novedades && nomina.novedades.length > 0) {
+        html += `
+        <div class="deductions">
+            <h3 class="section-title">Novedades y Deducciones</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Descripción</th>
+                        <th>Días</th>
+                        <th>Valor</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+        
+        nomina.novedades.forEach(novedad => {
+            html += `
+                    <tr>
+                        <td>${formatValueForHtml(novedad.codigo_novedad)}</td>
+                        <td>${formatValueForHtml(novedad.descripcion)}</td>
+                        <td>${formatValueForHtml(novedad.dias)}</td>
+                        <td>${novedad.valor !== undefined && novedad.valor !== null ? '$' + novedad.valor.toLocaleString('es-CO') : 'N/A'}</td>
+                    </tr>`;
+        });
+        
+        html += `
+                </tbody>
+            </table>
+            <div class="detail-row total">
+                <span class="detail-label">Total Deducciones:</span>
+                <span>${nomina.total_deducciones !== undefined && nomina.total_deducciones !== null ? '$' + nomina.total_deducciones.toLocaleString('es-CO') : 'N/A'}</span>
+            </div>
+        </div>`;
+    } else {
+        html += `
+        <div class="deductions">
+            <h3 class="section-title">Novedades y Deducciones</h3>
+            <p>No hay novedades o deducciones registradas para esta nómina.</p>
+        </div>`;
+    }
+
+    html += `
+        <div class="detail-row grand-total">
+            <span class="detail-label">Neto a Pagar:</span>
+            <span>${nomina.neto_pagar !== undefined && nomina.neto_pagar !== null ? '$' + nomina.neto_pagar.toLocaleString('es-CO') : 'N/A'}</span>
+        </div>
+    </div>`;
+
+    return html;
+}
+
+function generateTransportSubsidyList(empleados) {
+    if (!empleados || empleados.length === 0) {
+        return `
+        <div class="no-data">
+            <p>No se encontraron empleados con derecho a auxilio de transporte</p>
+        </div>
+        `;
+    }
+
+    let html = '<table><thead><tr><th>Nombres</th><th>Apellidos</th><th>Identificación</th><th>Salario Base</th><th>Auxilio Transporte</th></tr></thead><tbody>';
+    
+    empleados.forEach(emp => {
+        html += `
+        <tr>
+            <td>${formatValueForHtml(emp.nombres)}</td>
+            <td>${formatValueForHtml(emp.apellidos)}</td>
+            <td>${formatValueForHtml(emp.identificacion)}</td>
+            <td>${emp.salario_base ? '$' + emp.salario_base.toLocaleString() : 'N/A'}</td>
+            <td>${emp.auxilio_transporte ? '$' + emp.auxilio_transporte.toLocaleString() : 'N/A'}</td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table>';
+    html += `<div class="summary">Total empleados: ${empleados.length}</div>`;
+    
+    return html;
+}
+
+function generatePayrollSummary(resumen) {
+    if (!resumen || resumen.length === 0) {
+        return `
+        <div class="no-data">
+            <p>No se encontraron datos de nómina para el periodo especificado</p>
+        </div>
+        `;
+    }
+
+    let html = '<table><thead><tr><th>Código</th><th>Concepto</th><th>Tipo</th><th>Total Valor</th><th>Cantidad Empleados</th></tr></thead><tbody>';
+    
+    resumen.forEach(item => {
+        html += `
+        <tr>
+            <td>${formatValueForHtml(item.codigo_concepto)}</td>
+            <td>${formatValueForHtml(item.nombre_concepto)}</td>
+            <td>${formatValueForHtml(item.tipo_concepto)}</td>
+            <td>${item.total_valor ? '$' + item.total_valor.toLocaleString() : 'N/A'}</td>
+            <td>${formatValueForHtml(item.cantidad_empleados)}</td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table>';
+    html += `<div class="summary">Total conceptos: ${resumen.length}</div>`;
+    
+    return html;
+}
+
 function getCSS() {
     return `
     /* Estilos anteriores... */
@@ -255,7 +474,6 @@ function getCSS() {
     `;
 }
 
-// Exporta todas las funciones necesarias
 export {
     getLogoBase64,
     getCSS,

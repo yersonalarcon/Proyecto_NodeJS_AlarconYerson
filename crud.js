@@ -11,7 +11,9 @@ export class dbManager {
         await this.client.connect();
         this.db = this.client.db(this.dbName);
     }
-
+    static async find(collection, query) {
+        return await this.db.collection(collection).find(query).toArray();
+    }
     static async closeDb() {
         await this.client.close();
     }
