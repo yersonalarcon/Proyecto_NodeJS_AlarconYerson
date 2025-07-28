@@ -1,3 +1,4 @@
+// crearhtml.js
 export function crearHtml(tipoReporte, datos) {
     let html = `<!DOCTYPE html>
     <html lang="es">
@@ -32,8 +33,113 @@ export function crearHtml(tipoReporte, datos) {
     return html;
 }
 
+// Asegúrate de que esta función esté definida y exportada
+function getLogoBase64() {
+    // Logo simple de Acme en SVG convertido a base64
+    return 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMTAwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2U3NGMzYyIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSJ3aGl0ZSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXdlaWdodD0iYm9sZCIgZm9udC1zaXplPSIyMCI+QUNNRTwvdGV4dD48L3N2Zz4=';
+}
+function getReportTitle(tipoReporte) {
+    const titles = {
+        'empleados': 'Listado de Empleados por Área y Cargo',
+        'nomina-detalle': 'Detalle de Nómina',
+        'empleados-transporte': 'Empleados con Derecho a Auxilio de Transporte',
+        'nomina-resumen': 'Resumen de Nómina por Código',
+        'error': 'Error en el reporte'
+    };
+    return titles[tipoReporte] || 'Reporte de Acme Corporate';
+}
+
+function generateReportContent(tipoReporte, datos) {
+    switch(tipoReporte) {
+        case 'empleados':
+            return generateEmployeeList(datos);
+        case 'nomina-detalle':
+            return generatePayrollDetail(datos);
+        case 'empleados-transporte':
+            return generateTransportSubsidyList(datos);
+        case 'nomina-resumen':
+            return generatePayrollSummary(datos);
+        case 'error':
+            return generateErrorReport(datos);
+        default:
+            return '<p>Reporte no especificado</p>';
+    }
+}
+
+function generateErrorReport(errorData) {
+    return `
+    <div class="error-container">
+        <h2>${errorData.titulo || 'Error al generar el reporte'}</h2>
+        <p class="error-message">${errorData.mensaje || 'Ocurrió un error desconocido'}</p>
+    </div>
+    `;
+}
+
+function generateEmployeeList(empleados) {
+    if (!empleados || empleados.length === 0) {
+        return `
+        <div class="no-data">
+            <p>No se encontraron empleados con contratos activos</p>
+        </div>
+        `;
+    }
+
+    let html = '<table><thead><tr><th>Área</th><th>Cargo</th><th>Tipo ID</th><th>Número ID</th><th>Nombres</th><th>Apellidos</th><th>Teléfono</th><th>Email</th><th>Género</th><th>Salario Base</th></tr></thead><tbody>';
+    
+    empleados.forEach(emp => {
+        const areaNombre = emp.area?.nombre || 'N/A';
+        const cargoNombre = emp.cargo?.nombre || 'N/A';
+        const infoPersonal = emp.informacion_personal || {};
+        const contrato = emp.contrato || {};
+        
+        html += `
+        <tr>
+            <td>${areaNombre}</td>
+            <td>${cargoNombre}</td>
+            <td>${infoPersonal.tipo_identificacion || 'N/A'}</td>
+            <td>${infoPersonal.numero_identificacion || 'N/A'}</td>
+            <td>${infoPersonal.nombres || 'N/A'}</td>
+            <td>${infoPersonal.apellidos || 'N/A'}</td>
+            <td>${infoPersonal.telefono || 'N/A'}</td>
+            <td>${infoPersonal.email || 'N/A'}</td>
+            <td>${infoPersonal.genero || 'N/A'}</td>
+            <td>${contrato.salario_base ? '$' + contrato.salario_base.toLocaleString() : 'N/A'}</td>
+        </tr>`;
+    });
+    
+    html += '</tbody></table>';
+    html += `<div class="summary">Total empleados: ${empleados.length}</div>`;
+    
+    return html;
+}
 function getCSS() {
     return `
+    /* Estilos anteriores... */
+    
+    .error-container {
+        background-color: #ffeeee;
+        border: 1px solid #ffcccc;
+        padding: 20px;
+        margin: 20px 0;
+        border-radius: 5px;
+    }
+    
+    .error-message {
+        color: #d9534f;
+        font-weight: bold;
+        margin: 10px 0;
+    }
+    
+    .error-details {
+        margin-top: 15px;
+        padding: 10px;
+        background-color: #fff;
+        border: 1px solid #ddd;
+        border-radius: 3px;
+        font-family: monospace;
+        white-space: pre-wrap;
+    }
+    ` + /* Resto del CSS original */ `
     * {
         margin: 0;
         padding: 0;
@@ -149,216 +255,10 @@ function getCSS() {
     `;
 }
 
-function getLogoBase64() {
-    // Logo simple de Acme en SVG convertido a base64
-    return 'PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMDAgMTAwIj48cmVjdCB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2U3NGMzYyIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSJ3aGl0ZSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXdlaWdodD0iYm9sZCIgZm9udC1zaXplPSIyMCI+QUNNRTwvdGV4dD48L3N2Zz4=';
-}
-
-function getReportTitle(tipoReporte) {
-    const titles = {
-        'empleados': 'Listado de Empleados por Área y Cargo',
-        'nomina-detalle': 'Detalle de Nómina',
-        'empleados-transporte': 'Empleados con Derecho a Auxilio de Transporte',
-        'nomina-resumen': 'Resumen de Nómina por Código'
-    };
-    return titles[tipoReporte] || 'Reporte de Acme Corporate';
-}
-
-function generateReportContent(tipoReporte, datos) {
-    switch(tipoReporte) {
-        case 'empleados':
-            return generateEmployeeList(datos);
-        case 'nomina-detalle':
-            return generatePayrollDetail(datos);
-        case 'empleados-transporte':
-            return generateTransportSubsidyList(datos);
-        case 'nomina-resumen':
-            return generatePayrollSummary(datos);
-        default:
-            return '<p>Reporte no especificado</p>';
-    }
-}
-
-function generateEmployeeList(empleados) {
-    let html = '<table><thead><tr><th>Área</th><th>Cargo</th><th>Tipo ID</th><th>Número ID</th><th>Nombres</th><th>Apellidos</th><th>Teléfono</th><th>Email</th><th>Género</th></tr></thead><tbody>';
-    
-    empleados.forEach(emp => {
-        html += `
-        <tr>
-            <td>${emp.area.codigo} - ${emp.area.nombre}</td>
-            <td>${emp.cargo.codigo} - ${emp.cargo.nombre}</td>
-            <td>${emp.informacion_personal.tipo_identificacion}</td>
-            <td>${emp.informacion_personal.numero_identificacion}</td>
-            <td>${emp.informacion_personal.nombres}</td>
-            <td>${emp.informacion_personal.apellidos}</td>
-            <td>${emp.informacion_personal.telefono || 'N/A'}</td>
-            <td>${emp.informacion_personal.email || 'N/A'}</td>
-            <td>${emp.informacion_personal.genero}</td>
-        </tr>`;
-    });
-    
-    html += '</tbody></table>';
-    html += `<div class="summary">Total empleados: ${empleados.length}</div>`;
-    
-    return html;
-}
-
-function generatePayrollDetail(data) {
-    const { empleado, nomina } = data;
-    
-    let html = `
-    <div class="employee-details">
-        <div class="detail-row">
-            <span class="detail-label">Empleado:</span>
-            <span>${empleado.informacion_personal.nombres} ${empleado.informacion_personal.apellidos}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Identificación:</span>
-            <span>${empleado.informacion_personal.tipo_identificacion} ${empleado.informacion_personal.numero_identificacion}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Salario Base:</span>
-            <span>$${nomina.salario_base.toLocaleString()}</span>
-        </div>
-    </div>
-    
-    <div class="deductions">
-        <h3 class="section-title">Deducciones</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Código</th>
-                    <th>Nombre</th>
-                    <th>Valor</th>
-                </tr>
-            </thead>
-            <tbody>`;
-    
-    nomina.deducciones.forEach(ded => {
-        html += `
-                <tr>
-                    <td>${ded.codigo}</td>
-                    <td>${ded.nombre}</td>
-                    <td>$${ded.valor.toLocaleString()}</td>
-                </tr>`;
-    });
-    
-    html += `
-            </tbody>
-        </table>
-        <div class="detail-row">
-            <span class="detail-label">Total Deducciones:</span>
-            <span>$${nomina.total_deducciones.toLocaleString()}</span>
-        </div>
-    </div>
-    
-    <div class="earnings">
-        <h3 class="section-title">Devengos</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Código</th>
-                    <th>Nombre</th>
-                    <th>Valor</th>
-                </tr>
-            </thead>
-            <tbody>`;
-    
-    nomina.devengos.forEach(dev => {
-        html += `
-                <tr>
-                    <td>${dev.codigo}</td>
-                    <td>${dev.nombre}</td>
-                    <td>$${dev.valor.toLocaleString()}</td>
-                </tr>`;
-    });
-    
-    html += `
-            </tbody>
-        </table>
-        <div class="detail-row">
-            <span class="detail-label">Total Devengos:</span>
-            <span>$${nomina.total_devengado.toLocaleString()}</span>
-        </div>
-    </div>
-    
-    <div class="summary">
-        <div class="detail-row">
-            <span class="detail-label">Neto a Pagar:</span>
-            <span>$${nomina.neto_pagar.toLocaleString()}</span>
-        </div>
-    </div>`;
-    
-    return html;
-}
-
-function generateTransportSubsidyList(empleados) {
-    let html = '<table><thead><tr><th>Área</th><th>Cargo</th><th>Tipo ID</th><th>Número ID</th><th>Nombres</th><th>Apellidos</th><th>Salario Base</th></tr></thead><tbody>';
-    
-    empleados.forEach(emp => {
-        html += `
-        <tr>
-            <td>${emp.area.codigo} - ${emp.area.nombre}</td>
-            <td>${emp.cargo.codigo} - ${emp.cargo.nombre}</td>
-            <td>${emp.informacion_personal.tipo_identificacion}</td>
-            <td>${emp.informacion_personal.numero_identificacion}</td>
-            <td>${emp.informacion_personal.nombres}</td>
-            <td>${emp.informacion_personal.apellidos}</td>
-            <td>$${emp.contrato.salario_base.toLocaleString()}</td>
-        </tr>`;
-    });
-    
-    html += '</tbody></table>';
-    html += `<div class="summary">Total empleados con auxilio de transporte: ${empleados.length}</div>`;
-    
-    return html;
-}
-
-function generatePayrollSummary(nomina) {
-    return `
-    <div class="employee-details">
-        <div class="detail-row">
-            <span class="detail-label">Código Nómina:</span>
-            <span>${nomina.codigo}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Periodo:</span>
-            <span>${nomina.periodo}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Fecha Generación:</span>
-            <span>${new Date(nomina.fecha_generacion).toLocaleDateString()}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Estado:</span>
-            <span>${nomina.estado}</span>
-        </div>
-    </div>
-    
-    <table>
-        <thead>
-            <tr>
-                <th>Tipo ID</th>
-                <th>Número ID</th>
-                <th>Nombres</th>
-                <th>Apellidos</th>
-                <th>Salario Base</th>
-                <th>Total Deducciones</th>
-                <th>Total Devengos</th>
-                <th>Neto a Pagar</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>${nomina.empleado.informacion_personal.tipo_identificacion}</td>
-                <td>${nomina.empleado.informacion_personal.numero_identificacion}</td>
-                <td>${nomina.empleado.informacion_personal.nombres}</td>
-                <td>${nomina.empleado.informacion_personal.apellidos}</td>
-                <td>$${nomina.salario_base.toLocaleString()}</td>
-                <td>$${nomina.total_deducciones.toLocaleString()}</td>
-                <td>$${nomina.total_devengado.toLocaleString()}</td>
-                <td>$${nomina.neto_pagar.toLocaleString()}</td>
-            </tr>
-        </tbody>
-    </table>`;
-}
+// Exporta todas las funciones necesarias
+export {
+    getLogoBase64,
+    getCSS,
+    getReportTitle,
+    generateReportContent
+};

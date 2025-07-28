@@ -31,7 +31,7 @@ const getInput = (prompt) => new Promise(resolve => {
 
 const openReportInBrowser = (filePath) => {
     const opener = process.platform === 'win32' ? 'start' : 
-                  process.platform === 'darwin' ? 'open' : 'xdg-open';
+                process.platform === 'darwin' ? 'open' : 'xdg-open';
     exec(`${opener} ${filePath}`, (error) => {
         if (error) console.error(`Abre manualmente: ${filePath}`);
     });
@@ -71,49 +71,143 @@ Generación de Reportes:
 
 // Funciones de generación de reportes
 const generateEmployeeAreaReport = async () => {
+    let dbOpened = false;
     try {
+        if (!dbManager.db) {
+            await dbManager.openDb();
+            dbOpened = true;
+        }
+
+        // 1. Obtener todos los empleados
         const empleados = await dbManager.list('empleados');
-        const empleadosConContrato = await Promise.all(
-            empleados.map(async emp => ({
+        if (!empleados || empleados.length === 0) {
+            throw new Error("No se encontraron empleados en la base de datos");
+        }
+
+        // 2. Obtener todos los contratos activos de una sola vez
+        const contratosActivos = await dbManager.db.collection('contratos')
+            .find({ estado: 'activo' })
+            .toArray();
+
+        // 3. Crear un mapa rápido de contratos por empleado_id
+        const contratoPorEmpleadoId = {};
+        contratosActivos.forEach(contrato => {
+            // IMPORTANTE: Convertir a string para comparación directa
+            const empleadoIdStr = contrato.empleado_id.toString();
+            contratoPorEmpleadoId[empleadoIdStr] = contrato;
+        });
+
+        // 4. Enriquecer empleados con sus contratos
+        const empleadosConContrato = empleados.map(emp => {
+            const empleadoIdStr = emp._id.toString();
+            return {
                 ...emp,
-                contrato: await dbManager.db.collection('contratos')
-                    .findOne({ 
-                        empleado_id: new ObjectId(emp._id),
-                        estado: 'activo' 
-                    })
-            }))
-        );
-        
-        await generateAndShowReport('empleados', empleadosConContrato.filter(e => e.contrato));
+                contrato: contratoPorEmpleadoId[empleadoIdStr] || null
+            };
+        });
+
+        // 5. Filtrar y formatear datos
+        const datosValidos = empleadosConContrato
+            .filter(e => e.contrato !== null)
+            .map(e => ({
+                ...e,
+                _id: e._id.toString(),
+                contrato: {
+                    ...e.contrato,
+                    _id: e.contrato._id.toString()
+                }
+            }));
+
+        if (datosValidos.length === 0) {
+            // Diagnóstico detallado
+            const empleadosSinContrato = empleadosConContrato
+                .filter(e => e.contrato === null)
+                .map(e => ({
+                    id: e._id.toString(),
+                    nombre: `${e.informacion_personal?.nombres} ${e.informacion_personal?.apellidos}`,
+                    contratosEnDB: contratosActivos.map(c => c.empleado_id.toString())
+                }));
+
+            console.log("Diagnóstico completo:");
+            console.log("- Total empleados:", empleados.length);
+            console.log("- Total contratos activos en DB:", contratosActivos.length);
+            console.log("- Empleados sin contrato detectado:", empleadosSinContrato);
+            
+            throw new Error(`Problema de relación empleados-contratos. Ver consola para detalles.`);
+        }
+
+        await generateAndShowReport('empleados', datosValidos);
+
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Error generando reporte:', error.message);
+        await generateAndShowReport('error', {
+            titulo: "Error en reporte",
+            mensaje: error.message,
+            detalles: error.stack
+        });
+    } finally {
+        if (dbOpened) {
+            await dbManager.closeDb();
+        }
     }
 };
 
 const generatePayrollDetailReport = async () => {
+    let dbOpened = false;
     try {
-        const [empleadoId, nominaId] = await Promise.all([
-            getInput("ID del empleado: "),
-            getInput("ID de la nómina: ")
-        ]);
-        
+        // 1. Manejo de conexión
+        if (!dbManager.db) {
+            await dbManager.openDb();
+            dbOpened = true;
+        }
+
+        // 2. Obtener inputs
+        const empleadoId = await getInput("ID del empleado: ");
+        const nominaId = await getInput("ID de la nómina: ");
+
+        if (!empleadoId || !nominaId) {
+            throw new Error("Debes proporcionar ambos IDs");
+        }
+
+        // 3. Obtener datos
         const [empleado, nomina, contrato] = await Promise.all([
             dbManager.show('empleados', empleadoId),
             dbManager.show('nominas', nominaId),
             dbManager.db.collection('contratos')
                 .findOne({ empleado_id: new ObjectId(empleadoId) })
         ]);
-        
-        if (!empleado || !nomina) {
-            throw new Error("Empleado o nómina no encontrados");
-        }
-        
-        await generateAndShowReport('nomina-detalle', { 
-            empleado, 
-            nomina: { ...nomina, salario_base: contrato?.salario_base || 0 } 
-        });
+
+        // 4. Validaciones
+        if (!empleado) throw new Error("Empleado no encontrado");
+        if (!nomina) throw new Error("Nómina no encontrada");
+
+        // 5. Preparar datos para HTML
+        const datos = {
+            empleado: {
+                ...empleado,
+                _id: empleado._id.toString()
+            },
+            nomina: {
+                ...nomina,
+                _id: nomina._id.toString(),
+                salario_base: contrato?.salario_base || 0
+            }
+        };
+
+        // 6. Generar reporte
+        await generateAndShowReport('nomina-detalle', datos);
+
     } catch (error) {
-        console.error('Error:', error.message);
+        console.error('Error generando reporte de nómina:', error.message);
+        // Mostrar error en HTML
+        await generateAndShowReport('error', {
+            titulo: "Error en reporte de nómina",
+            mensaje: error.message
+        });
+    } finally {
+        if (dbOpened) {
+            await dbManager.closeDb();
+        }
     }
 };
 

@@ -21,7 +21,7 @@ export class ETLProcessor {
             // 3. Buscar archivos CSV
             const files = (await fs.readdir(rawDataPath))
                 .filter(file => file.endsWith('.csv'))
-                .sort(); // Orden alfabético para consistencia
+                .sort();
 
             if (files.length === 0) {
                 console.log('No se encontraron archivos CSV en /raw-data');
@@ -65,42 +65,41 @@ export class ETLProcessor {
                             results[collectionName].errors.push(`Línea ${index + 2}: ID inválido - ${error.message}`);
                             return null;
                         }
-                    }).filter(Boolean); // Eliminar documentos con errores
+                    }).filter(Boolean);
 
                     if (documents.length === 0) {
                         throw new Error('Todos los documentos contenían errores');
                     }
 
-                    // 8. Estrategia de inserción
-                    const insertStrategy = await this.determineInsertStrategy(collectionName, documents[0]);
+                    // 8. Estrategia especial para nóminas
+                    if (collectionName === 'nominas') {
+                        const nominaResult = await this.handleNominas(documents);
+                        results[collectionName] = { ...results[collectionName], ...nominaResult };
+                    } else {
+                        // 9. Estrategia normal para otras colecciones
+                        const insertStrategy = await this.determineInsertStrategy(collectionName, documents[0]);
+                        const insertResult = await this.executeInsert(collectionName, documents, insertStrategy);
+                        
+                        results[collectionName].processed = insertResult.insertedCount;
+                        results[collectionName].duplicates = insertResult.duplicateCount;
+                        results[collectionName].modified = insertResult.modifiedCount;
 
-                    // 9. Ejecutar inserción
-                    const insertResult = await this.executeInsert(
-                        collectionName, 
-                        documents, 
-                        insertStrategy
-                    );
-
-                    // 10. Registrar resultados
-                    results[collectionName].processed = insertResult.insertedCount;
-                    results[collectionName].duplicates = insertResult.duplicateCount;
-                    results[collectionName].modified = insertResult.modifiedCount;
-
-                    console.log([
-                        `✅ Resultados:`,
-                        `- Insertados: ${insertResult.insertedCount}`,
-                        `- Duplicados: ${insertResult.duplicateCount}`,
-                        `- Modificados: ${insertResult.modifiedCount}`
-                    ].join('\n'));
+                        console.log([
+                            `✅ Resultados:`,
+                            `- Insertados: ${insertResult.insertedCount}`,
+                            `- Duplicados: ${insertResult.duplicateCount}`,
+                            `- Modificados: ${insertResult.modifiedCount}`
+                        ].join('\n'));
+                    }
 
                 } catch (error) {
                     console.error(`Error procesando ${file}:`, error.message);
                     results[collectionName].error = error.message;
-                    continue; // Continuar con el siguiente archivo
+                    continue;
                 }
             }
 
-            // 11. Resumen final
+            // 10. Resumen final
             console.log('\n--- Resumen del ETL ---');
             for (const [collection, result] of Object.entries(results)) {
                 console.log([
@@ -121,21 +120,136 @@ export class ETLProcessor {
         }
     }
 
+    static async handleNominas(documents) {
+        const collection = dbManager.db.collection('nominas');
+        const result = {
+            processed: 0,
+            duplicates: 0,
+            modified: 0,
+            errors: []
+        };
+    
+        // Paso 1: Agrupar por _id
+        const grupos = new Map();
+    
+        for (const doc of documents) {
+            const id = doc._id.toHexString(); // Para usar como clave
+    
+            if (!grupos.has(id)) {
+                grupos.set(id, []);
+            }
+    
+            grupos.get(id).push(doc);
+        }
+    
+        // Paso 2: Consolidar cada grupo
+        const consolidados = [];
+    
+        for (const [id, grupo] of grupos.entries()) {
+            const base = { ...grupo[0] }; // Tomamos la primera fila como base
+    
+            base.conceptos = grupo
+                .filter(d => d['conceptos.codigo_concepto'])
+                .map(d => ({
+                    codigo_concepto: d['conceptos.codigo_concepto'],
+                    valor: d['conceptos.valor'] ? Number(d['conceptos.valor']) : 0,
+                    descripcion: d['conceptos.descripcion'] || ''
+                }));
+    
+            base.novedades = grupo
+                .filter(d => d['novedades.codigo_novedad'])
+                .map(d => ({
+                    codigo_novedad: d['novedades.codigo_novedad'],
+                    dias: d['novedades.dias'] ? Number(d['novedades.dias']) : null,
+                    descripcion: d['novedades.descripcion'] || '',
+                    valor: d['novedades.valor'] ? Number(d['novedades.valor']) : null
+                }));
+    
+            // Ajustes de formato
+            base.total_devengado = Number(base.total_devengado);
+            base.total_deducciones = Number(base.total_deducciones);
+            base.neto_pagar = Number(base.neto_pagar);
+            base.periodo = {
+                mes: Number(base['periodo.mes']),
+                año: Number(base['periodo.año'])
+            };
+    
+            // Eliminar campos intermedios
+            delete base['conceptos.codigo_concepto'];
+            delete base['conceptos.valor'];
+            delete base['conceptos.descripcion'];
+            delete base['novedades.codigo_novedad'];
+            delete base['novedades.dias'];
+            delete base['novedades.descripcion'];
+            delete base['novedades.valor'];
+            delete base['periodo.mes'];
+            delete base['periodo.año'];
+    
+            // Restaurar _id como ObjectId
+            base._id = new ObjectId(id);
+    
+            consolidados.push(base);
+        }
+    
+        // Paso 3: Insertar evitando duplicados
+        const bulkOps = [];
+    
+        for (const doc of consolidados) {
+            try {
+                const exists = await collection.findOne({
+                    $or: [
+                        { _id: doc._id },
+                        {
+                            empleado_id: doc.empleado_id,
+                            'periodo.mes': doc.periodo.mes,
+                            'periodo.año': doc.periodo.año
+                        }
+                    ]
+                });
+    
+                if (exists) {
+                    result.duplicates++;
+                    continue;
+                }
+    
+                bulkOps.push({ insertOne: { document: doc } });
+            } catch (error) {
+                result.errors.push(`Error procesando nómina: ${error.message}`);
+            }
+        }
+    
+        // Paso 4: Ejecutar inserción en bloque
+        if (bulkOps.length > 0) {
+            try {
+                const bulkResult = await collection.bulkWrite(bulkOps, { ordered: false });
+                result.processed = bulkResult.insertedCount;
+                console.log([
+                    `✅ Resultados Nóminas:`,
+                    `- Insertadas: ${bulkResult.insertedCount}`,
+                    `- Duplicadas: ${result.duplicates}`
+                ].join('\n'));
+            } catch (error) {
+                if (error.result) {
+                    result.processed = error.result.insertedCount;
+                    result.duplicates += error.writeErrors?.length || 0;
+                    console.warn(`Algunos errores en nóminas: ${error.writeErrors?.length || 0}`);
+                } else {
+                    throw error;
+                }
+            }
+        } else {
+            console.log(`ℹ️ Todas las nóminas ya existen (${consolidados.length} registros)`);
+        }
+    
+        return result;
+    }
+    
     static async determineInsertStrategy(collectionName, sampleDoc) {
-        // Verificar si la colección existe y tiene documentos
         const collection = dbManager.db.collection(collectionName);
         const count = await collection.countDocuments();
         
-        if (count === 0) {
-            return 'insert'; // Insertar directamente si la colección está vacía
-        }
-
-        // Si los documentos tienen _id, usar upsert
-        if (sampleDoc._id) {
-            return 'upsert';
-        }
-
-        // Si no hay _id pero la colección existe, insertar ignorando duplicados
+        if (count === 0) return 'insert';
+        if (sampleDoc._id) return 'upsert';
         return 'insert-ignore-duplicates';
     }
 
@@ -150,9 +264,7 @@ export class ETLProcessor {
         try {
             switch (strategy) {
                 case 'insert':
-                    const insertResult = await collection.insertMany(documents, { 
-                        ordered: false 
-                    });
+                    const insertResult = await collection.insertMany(documents, { ordered: false });
                     result.insertedCount = insertResult.insertedCount;
                     break;
 
@@ -165,10 +277,7 @@ export class ETLProcessor {
                         }
                     }));
                     
-                    const bulkResult = await collection.bulkWrite(bulkOps, { 
-                        ordered: false 
-                    });
-                    
+                    const bulkResult = await collection.bulkWrite(bulkOps, { ordered: false });
                     result.insertedCount = bulkResult.upsertedCount;
                     result.modifiedCount = bulkResult.modifiedCount;
                     result.duplicateCount = documents.length - (bulkResult.upsertedCount + bulkResult.modifiedCount);
@@ -176,9 +285,7 @@ export class ETLProcessor {
 
                 case 'insert-ignore-duplicates':
                     try {
-                        const insertResult = await collection.insertMany(documents, { 
-                            ordered: false 
-                        });
+                        const insertResult = await collection.insertMany(documents, { ordered: false });
                         result.insertedCount = insertResult.insertedCount;
                     } catch (error) {
                         if (error.result) {
@@ -196,6 +303,12 @@ export class ETLProcessor {
         }
 
         return result;
+    }
+
+    // Opcional: Método para limpiar colecciones
+    static async cleanCollection(collectionName) {
+        await dbManager.db.collection(collectionName).deleteMany({});
+        console.log(`♻️ Colección ${collectionName} limpiada`);
     }
 }
 

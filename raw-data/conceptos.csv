@@ -1,0 +1,8 @@
+codigo,nombre,tipo,descripcion,valor_base,afecta_salario,afecta_prestaciones
+SALARIO,Salario base,devengo,"Salario base del empleado",1,si,si
+AUX_TRANSP,Auxilio de transporte,devengo,"Auxilio de transporte para salarios menores a 2 SMLV",150000,no,no
+PENSION,Aporte a pensión,deducción,"Aporte obligatorio a pensión (4% del salario)",0.04,si,si
+SALUD,Aporte a salud,deducción,"Aporte obligatorio a salud (4% del salario)",0.04,si,si
+HED,Horas extras diurnas,devengo,"Horas extras trabajadas en horario diurno",1.25,si,si
+HEN,Horas extras nocturnas,devengo,"Horas extras trabajadas en horario nocturno",1.75,si,si
+FALTA,Falta injustificada,deducción,"Descuento por falta injustificada",1,si,no

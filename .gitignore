@@ -9,14 +9,6 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-# Archivos de entorno (si en algún momento usas variables de entorno)
-.env
-.env.*
-
-# Carpetas que contengan datos crudos o sensibles
-raw-data/
-
 # Cache y otros temporales (por si usas herramientas como VSCode o npm scripts que generan carpetas)
 .cache/
 dist/
