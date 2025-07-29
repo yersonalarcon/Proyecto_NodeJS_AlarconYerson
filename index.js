@@ -74,123 +74,36 @@ Generación de Reportes:
 
 // Funciones de generación de reportes
 const generateEmployeeAreaReport = async () => {
-    let dbOpened = false;
+    console.log("Generando reporte de empleados por área y cargo...");
     try {
-        if (!dbManager.db) {
-            await dbManager.openDb();
-            dbOpened = true;
+        // Las funciones de reportQueries asumen que la DB ya está conectada.
+        // Asegúrate de que dbManager.openDb() se llama una vez al inicio de tu aplicación
+        // y dbManager.closeDb() se llama al final.
+
+        // Llamar a la función de reporte centralizada de reportQueries.js
+        const datosReporte = await reportQueries.getEmployeesByAreaAndPosition();
+
+        // Verificar si se obtuvieron datos
+        if (!datosReporte || datosReporte.length === 0) {
+            throw new Error("No se encontraron datos para el reporte de empleados por área y cargo. Verifica si hay contratos activos y empleados relacionados.");
         }
-
-        const [empleados, contratosActivos] = await Promise.all([
-            dbManager.list('empleados'),
-            dbManager.db.collection('contratos').find({ estado: 'activo' }).toArray()
-        ]);
-
-        if (!empleados || empleados.length === 0) {
-            throw new Error("No se encontraron empleados en la base de datos");
-        }
-
-        if (!contratosActivos || contratosActivos.length === 0) {
-            throw new Error("No se encontraron contratos activos en la base de datos");
-        }
-
-        const empleadosMap = {};
-        empleados.forEach(emp => {
-            empleadosMap[emp._id.toString()] = emp;
-        });
-
-        const contratosMap = {};
-        const contratosValidos = [];
         
-        contratosActivos.forEach(contrato => {
-            const empleadoIdStr = contrato.empleado_id?.toString();
-            if (empleadoIdStr && empleadosMap[empleadoIdStr]) {
-                contratosMap[empleadoIdStr] = contrato;
-                contratosValidos.push(contrato);
-            }
-        });
-
-        if (contratosValidos.length !== contratosActivos.length) {
-            const contratosInvalidos = contratosActivos.filter(c => {
-                const empleadoIdStr = c.empleado_id?.toString();
-                return !empleadoIdStr || !empleadosMap[empleadoIdStr];
-            });
-
-            console.log("Diagnóstico de inconsistencias:");
-            console.log("- Total contratos activos:", contratosActivos.length);
-            console.log("- Contratos con relación válida:", contratosValidos.length);
-            console.log("- Contratos problemáticos:", contratosInvalidos.map(c => ({
-                contrato_id: c._id.toString(),
-                empleado_id: c.empleado_id?.toString(),
-                problema: !c.empleado_id ? "Falta empleado_id" : "Empleado no encontrado"
-            })));
-        }
-
-        const empleadosConContrato = empleados
-            .filter(emp => contratosMap[emp._id.toString()])
-            .map(emp => {
-                const contrato = contratosMap[emp._id.toString()];
-                return {
-                    ...emp,
-                    contrato: {
-                        ...contrato,
-                        _id: contrato._id.toString(),
-                        empleado_id: contrato.empleado_id.toString()
-                    }
-                };
-            });
-
-        if (empleadosConContrato.length === 0) {
-            throw new Error("No se encontraron empleados con contratos activos válidos");
-        }
-
-        const datosReporte = empleadosConContrato.map(emp => {
-            const infoPersonal = emp.informacion_personal || {};
-            const contrato = emp.contrato || {};
-            const area = contrato.area || {};
-            const cargo = contrato.cargo || {};
-
-            return {
-                nombres: infoPersonal.nombres || 'N/A',
-                apellidos: infoPersonal.apellidos || 'N/A',
-                tipo_identificacion: infoPersonal.tipo_identificacion || 'N/A',
-                numero_identificacion: infoPersonal.numero_identificacion || 'N/A',
-                genero: infoPersonal.genero || 'N/A',
-                telefono: infoPersonal.telefono || 'N/A',
-                email: infoPersonal.email || 'N/A',
-                tipo_contrato: contrato.tipo_contrato || 'N/A',
-                fecha_inicio: contrato.fecha_inicio || 'N/A',
-                salario_base: contrato.salario_base || 0,
-                area_codigo: area.id || 'N/A',
-                area_nombre: area.nombre || 'N/A',
-                cargo_codigo: cargo.id || 'N/A',
-                cargo_nombre: cargo.nombre || 'N/A'
-            };
-        });
-
+        // Generar y mostrar el HTML con los datos obtenidos
         await generateAndShowReport('empleados', datosReporte);
+        console.log("✅ Reporte de Empleados por Área y Cargo generado.");
 
     } catch (error) {
-        console.error('Error generando reporte:', error);
+        console.error("Error en reporte de empleados:", error);
         await generateAndShowReport('error', {
-            titulo: "Error en reporte",
+            titulo: "Error en Reporte de Empleados",
             mensaje: error.message,
-            detalles: error.stack || "No hay detalles adicionales disponibles"
+            detalles: error.stack
         });
-    } finally {
-        if (dbOpened) {
-            await dbManager.closeDb();
-        }
     }
 };
-
 const generatePayrollDetailReport = async () => {
-    let dbOpened = false;
+    console.log("Iniciando generación de reporte de nómina detallada...");
     try {
-        console.log("Iniciando generación de reporte de nómina detallada...");
-        await dbManager.openDb();
-        dbOpened = true;
-
         // Validación de entrada
         const empleadoId = await getInput("ID del empleado: ");
         if (!ObjectId.isValid(empleadoId)) {
@@ -208,160 +121,14 @@ const generatePayrollDetailReport = async () => {
             throw new Error(`El año debe estar entre 2000 y ${new Date().getFullYear() + 1}`);
         }
 
-        // Diagnóstico 1: Verificar si el empleado existe
-        console.log(`Buscando empleado con ID: ${empleadoId}`);
-        const empleado = await dbManager.show('empleados', empleadoId);
-        if (!empleado) {
-            throw new Error(`El empleado con ID ${empleadoId} no existe en la base de datos.`);
-        }
-        console.log(`Empleado encontrado: ${empleado.informacion_personal?.nombres || ''} ${empleado.informacion_personal?.apellidos || ''}`);
-
-        // Diagnóstico 2: Buscar nómina utilizando fecha_pago si 'periodo' es inconsistente
-        // Agregamos una condición robusta para buscar por mes/año del campo 'fecha_pago'
-        // Esto es crucial si 'periodo.mes' y 'periodo.año' no están siempre presentes/correctos.
-        console.log(`Buscando nómina para el período ${mesInput}/${añoInput} para el empleado ${empleadoId} (buscando por 'periodo' o 'fecha_pago')...`);
-        const nominasQuery = {
-            $or: [
-                { empleado_id: new ObjectId(empleadoId) }, 
-                { empleado_id: empleadoId }
-            ],
-            $or: [ // Nueva condición OR para buscar por 'periodo' o 'fecha_pago'
-                {
-                    'periodo.mes': mesInput,
-                    'periodo.año': añoInput
-                },
-                {
-                    fecha_pago: { $ne: null }, // Aseguramos que fecha_pago exista
-                    $expr: {
-                        $and: [
-                            { $eq: [ { $month: "$fecha_pago" }, mesInput ] },
-                            { $eq: [ { $year: "$fecha_pago" }, añoInput ] }
-                        ]
-                    }
-                }
-            ]
-        };
-
-        const nominas = await dbManager.db.collection('nominas').find(nominasQuery).toArray();
-
-        let nomina = null;
-        if (nominas.length > 0) {
-            nomina = nominas[0]; // Tomamos la primera nómina encontrada si hay varias
-            console.log(`Nómina para ${mesInput}/${añoInput} encontrada.`);
-        } else {
-            console.log(`Nómina para ${mesInput}/${añoInput} NO encontrada. Buscando todas las nóminas existentes para diagnóstico (por empleado)...`);
-            const allNominasForEmployee = await dbManager.db.collection('nominas').find({
-                $or: [
-                    { empleado_id: new ObjectId(empleadoId) },
-                    { empleado_id: empleadoId }
-                ]
-            }).sort({ 'fecha_pago': -1, 'periodo.año': -1, 'periodo.mes': -1 }).toArray(); // Ordenamos para mejor diagnóstico
-
-            // Diagnóstico 4: Verificar contrato activo
-            console.log(`Buscando contrato activo para el empleado ${empleadoId}`);
-            const contratoActivo = await dbManager.db.collection('contratos').findOne({
-                $or: [
-                    { empleado_id: new ObjectId(empleadoId) },
-                    { empleado_id: empleadoId }
-                ],
-                estado: 'activo'
-            });
-
-            // Diagnóstico 5: Preparar mensaje de error detallado
-            let mensajeError = `No se encontró nómina para ${mesInput}/${añoInput} para ${empleado.informacion_personal?.nombres || ''} ${empleado.informacion_personal?.apellidos || ''}.\n\n`;
-            
-            if (contratoActivo) {
-                mensajeError += `Contrato activo desde: ${contratoActivo.fecha_inicio ? new Date(contratoActivo.fecha_inicio).toLocaleDateString() : 'N/A'}\n`;
-                mensajeError += `Salario base: ${contratoActivo.salario_base || 'N/A'}\n\n`;
-            } else {
-                mensajeError += `No tiene contrato activo actualmente.\n\n`;
-            }
-
-            if (allNominasForEmployee.length > 0) {
-                mensajeError += `Últimas nóminas registradas para este empleado:\n`;
-                allNominasForEmployee.slice(0, 5).forEach(n => { // Muestra las últimas 5
-                    // Priorizamos periodo si existe, si no, usamos fecha_pago
-                    let mesNominaDisplay = '??';
-                    let añoNominaDisplay = '????';
-
-                    if (n.periodo?.mes && n.periodo?.año) {
-                        mesNominaDisplay = n.periodo.mes?.toString().padStart(2, '0');
-                        añoNominaDisplay = n.periodo.año?.toString();
-                    } else if (n.fecha_pago) {
-                        const pagoDate = new Date(n.fecha_pago);
-                        if (!isNaN(pagoDate)) {
-                            mesNominaDisplay = (pagoDate.getMonth() + 1).toString().padStart(2, '0');
-                            añoNominaDisplay = pagoDate.getFullYear().toString();
-                        }
-                    }
-
-                    const estadoNomina = n.estado || 'sin estado';
-                    const fechaPagoNomina = n.fecha_pago ? new Date(n.fecha_pago).toLocaleDateString() : 'no pagada';
-                    
-                    mensajeError += `- ${mesNominaDisplay}/${añoNominaDisplay} (Estado: ${estadoNomina}, Pago: ${fechaPagoNomina})\n`;
-                });
-            } else {
-                mensajeError += `No hay nóminas registradas para este empleado.\n`;
-            }
-
-            throw new Error(mensajeError);
-        }
-
-        // Obtener el contrato activo para enriquecer los datos de la nómina
-        const contratoActivoParaReporte = await dbManager.db.collection('contratos').findOne({
-            $or: [
-                { empleado_id: new ObjectId(empleadoId) },
-                { empleado_id: empleadoId }
-            ],
-            estado: 'activo'
+        // Llamar a la función de reporte centralizada en reportQueries.js
+        const datosReporte = await reportQueries.getDetailedPayrollReport(empleadoId, {
+            mes: mesInput,
+            año: añoInput
         });
 
-        // Preparar datos para el reporte HTML
-        const nombreMeses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-                             'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-        
-        // Determinar el mes y año para el reporte, priorizando el campo 'periodo' si existe,
-        // sino extrayéndolo de 'fecha_pago' o usando el input original.
-        let reporteMes = mesInput;
-        let reporteAño = añoInput;
-
-        if (nomina.periodo?.mes && nomina.periodo?.año) {
-            reporteMes = nomina.periodo.mes;
-            reporteAño = nomina.periodo.año;
-        } else if (nomina.fecha_pago) {
-            const pagoDate = new Date(nomina.fecha_pago);
-            if (!isNaN(pagoDate)) {
-                reporteMes = pagoDate.getMonth() + 1;
-                reporteAño = pagoDate.getFullYear();
-            }
-        }
-
-        const datosReporte = {
-            empleado: {
-                id: empleado._id.toString(),
-                nombreCompleto: `${empleado.informacion_personal?.nombres || ''} ${empleado.informacion_personal?.apellidos || ''}`.trim(),
-                identificacion: empleado.informacion_personal?.numero_identificacion || 'N/A',
-                // Cargo y área deben venir del contrato
-                cargo: contratoActivoParaReporte?.cargo?.nombre || 'No especificado',
-                area: contratoActivoParaReporte?.area?.nombre || 'No especificado'
-            },
-            periodo: {
-                mes: reporteMes,
-                año: reporteAño,
-                nombreMes: nombreMeses[reporteMes - 1] || `Mes ${reporteMes}`
-            },
-            nomina: {
-                fecha_generacion: nomina.fecha_generation ? new Date(nomina.fecha_generation).toLocaleDateString() : 'No especificada',
-                fecha_pago: nomina.fecha_pago ? new Date(nomina.fecha_pago).toLocaleDateString() : 'Pendiente',
-                estado: nomina.estado || 'Desconocido',
-                total_devengado: nomina.total_devengado || 0, // Typo corregido
-                total_deducciones: nomina.total_deducciones || 0,
-                neto_pagar: nomina.neto_pagar || 0,
-                conceptos: Array.isArray(nomina.conceptos) ? nomina.conceptos : [nomina.conceptos].filter(Boolean),
-                novedades: Array.isArray(nomina.novedades) ? nomina.novedades : [nomina.novedades].filter(Boolean)
-            }
-        };
-
+        // La función de reportQueries.js ya lanza un error si no encuentra la nómina o el empleado.
+        // Si llegamos aquí, datosReporte es válido.
         console.log("Datos para el reporte preparados. Generando HTML...");
         await generateAndShowReport('nomina-detalle', datosReporte);
         console.log("Reporte de nómina detallada generado exitosamente.");
@@ -371,15 +138,14 @@ const generatePayrollDetailReport = async () => {
         // Siempre intenta mostrar un reporte de error en el navegador
         await generateAndShowReport('error', {
             titulo: "Error en Reporte de Nómina",
-            mensaje: error.message.split('\n')[0] || "Error al generar reporte",
-            detalles: error.message || "Verifique los datos e intente nuevamente"
+            mensaje: error.message.split('\n')[0] || "Error al generar reporte", // Muestra solo la primera línea del error
+            detalles: error.message || "Verifique los datos e intente nuevamente" // Muestra el mensaje completo en detalles
         });
-    } finally {
-        if (dbOpened) {
-            await dbManager.closeDb();
-            console.log("Conexión a la base de datos cerrada.");
-        }
     }
+    // NOTA: Se ha eliminado el manejo de dbOpened y dbManager.closeDb() aquí.
+    // Asegúrate de que dbManager.openDb() se llama una vez al inicio de tu aplicación
+    // (por ejemplo, en una función `main` o al arrancar el servidor)
+    // y dbManager.closeDb() al finalizar la aplicación.
 };
 const generateTransportSubsidyReport = async () => {
     let dbOpened = false;
@@ -420,48 +186,34 @@ const generateTransportSubsidyReport = async () => {
         }
     }
 };
-const generatePayrollSummaryReport = async () => {
-    let dbOpened = false;
+
+const generateDetailedPayrollReport = async () => {
+    console.log("Iniciando generación de reporte de detalle de nómina...");
     try {
-        await dbManager.openDb();
-        dbOpened = true;
+        const nominaId = await getInput("Ingrese el ID de la nómina (ej: 707f1f77bcf86cd799439601): ");
 
-        const mes = parseInt(await getInput("Mes a reportar (1-12): "));
-        const año = parseInt(await getInput("Año a reportar: "));
-        
-        if (isNaN(mes) || mes < 1 || mes > 12) {
-            throw new Error("El mes debe ser un número entre 1 y 12");
-        }
-        
-        if (isNaN(año)) {
-            throw new Error("El año debe ser un número válido");
+        if (!nominaId || !/^[0-9a-fA-F]{24}$/.test(nominaId)) {
+            throw new Error("ID de nómina inválido. Debe ser una cadena hexadecimal de 24 caracteres.");
         }
 
-        const resumen = await reportQueries.getPayrollSummaryByConcept({ mes, año });
+        const datosReporte = await reportQueries.getDetailedPayrollReport(nominaId);
         
-        if (!resumen || resumen.length === 0) {
-            throw new Error(`No hay datos para ${mes}/${año}`);
+        if (!datosReporte) {
+            throw new Error(`No se encontró el detalle de nómina para el ID: ${nominaId}. Verifique si el ID es correcto y si la nómina existe.`);
         }
 
-        await generateAndShowReport('nomina-resumen', {
-            periodo: `${mes}/${año}`,
-            conceptos: resumen,
-            totalGeneral: resumen.reduce((sum, item) => sum + (item.total_valor || 0), 0)
-        });
+        await generateAndShowReport('nomina-detalle', datosReporte);
+        console.log("✅ Reporte de detalle de nómina generado.");
+
     } catch (error) {
-        console.error('Error en resumen de nómina:', error);
+        console.error('Error en detalle de nómina:', error);
         await generateAndShowReport('error', {
-            titulo: "Error en resumen",
-            mensaje: error.message,
-            detalles: "Verifique el periodo ingresado"
+            titulo: "Error en Detalle de Nómina",
+            mensaje: error.message.split('\n')[0] || "Error al generar detalle de nómina",
+            detalles: error.message || "Verifique el ID de la nómina e intente nuevamente."
         });
-    } finally {
-        if (dbOpened) {
-            await dbManager.closeDb();
-        }
     }
-};
-
+}
 // Controladores de menú
 const handleMainMenu = async (opt) => {
     const actions = {
@@ -480,25 +232,84 @@ const handleMainMenu = async (opt) => {
 };
 
 const manageReports = async () => {
-    showReportsMenu();
-    const opt = await getInput("Seleccione: ");
-    
-    const actions = {
-        '1': generateEmployeeAreaReport,
-        '2': generatePayrollDetailReport,
-        '3': generateTransportSubsidyReport,
-        '4': generatePayrollSummaryReport,
-        '5': showMainMenu
-    };
-    
-    await (actions[opt] || (() => {
-        console.log("Opción inválida");
-        return manageReports();
-    }))();
-    
-    if (opt !== '5') await manageReports();
-};
+    console.log(`
+Gestión de Reportes:
+1. Listado de Empleados por Área y Cargo
+2. Detalle de Nómina (por empleado y período)
+3. Empleados con Derecho a Auxilio de Transporte
+4. Detalle de Nómina (por ID de Nómina)
+5. Volver`);
 
+    const opt = await getInput("Seleccione: ");
+    let reportType;
+    let dataForReport = null; // Inicializar en null
+
+    try {
+        switch (opt) {
+            case '1':
+                reportType = 'empleados';
+                dataForReport = await reportQueries.getEmployeesByAreaAndPosition();
+                break;
+            case '2':
+                reportType = 'nomina-detalle';
+                const empleadoId = await getInput('Ingrese el ID del empleado (ej: 654c602a8b9e1d8d9b07c2a1): ');
+                const mes = parseInt(await getInput('Ingrese el mes (1-12): '));
+                const año = parseInt(await getInput('Ingrese el año: '));
+                
+                // Validar que mes y año sean números válidos
+                if (isNaN(mes) || mes < 1 || mes > 12) {
+                    throw new Error("Mes inválido. Debe ser un número entre 1 y 12.");
+                }
+                if (isNaN(año) || año < 1900 || año > new Date().getFullYear() + 1) { // Ajusta el rango del año según necesites
+                    throw new Error("Año inválido. Debe ser un número válido.");
+                }
+
+                dataForReport = await reportQueries.getDetailedPayrollReportByEmployeeAndPeriod(empleadoId, { mes, año });
+                break;
+            case '3':
+                reportType = 'empleados-transporte';
+                dataForReport = await reportQueries.getEmployeesWithTransportSubsidy();
+                break;
+      
+            case '4': // Nueva opción para detalle de nómina por ID
+                reportType = 'nomina-detalle'; // Sigue siendo el mismo tipo de reporte 'nomina-detalle'
+                const nominaId = await getInput('Ingrese el ID de la nómina (ej: 707f1f77bcf86cd799439601): ');
+                dataForReport = await reportQueries.getDetailedPayrollReportByNominaId(nominaId);
+                break;
+            case '5':
+                return;  // Volver al menú principal
+            default:
+                console.log("Opción inválida.");
+                await manageReports(); // Permitir reintentar
+                return;
+        }
+        
+        // Solo genera y muestra el reporte si se obtuvo dataForReport
+        if (dataForReport !== null) { // Usar !== null para diferenciar de arrays vacíos
+            await generateAndShowReport(reportType, dataForReport);
+        } else {
+             console.log("No se encontraron datos para generar el reporte solicitado.");
+             await generateAndShowReport('error', {
+                titulo: 'Datos no encontrados',
+                mensaje: 'La consulta no arrojó resultados para el reporte.',
+                detalles: `Tipo de reporte: ${reportType}. Revise los IDs o el período ingresado.`
+             });
+        }
+
+    } catch (error) {
+        console.error("Error al generar reporte:", error.message); // Muestra solo el mensaje del error para mayor claridad
+        await generateAndShowReport('error', {
+            titulo: 'Error en la Generación del Reporte',
+            mensaje: `Ocurrió un error al intentar generar el reporte: ${reportType}.`,
+            detalles: error.message || 'Error desconocido. Verifique los logs.'
+        });
+    } finally {
+        // Solo volver a llamar a manageReports si no es la opción 5
+        if (opt !== '5') {
+            await manageReports();
+        }
+    }
+};
 // Funciones principales
 const loadFiles = async () => {
     console.log("Cargando archivos...");

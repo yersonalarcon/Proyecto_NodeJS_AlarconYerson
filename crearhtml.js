@@ -53,22 +53,42 @@ function getReportTitle(tipoReporte) {
 /**
  * Función auxiliar para formatear valores antes de mostrarlos en HTML.
  * Convierte ObjectIds a strings y maneja valores nulos/indefinidos.
+ * Ahora también maneja objetos y arrays.
  * @param {*} value El valor a formatear.
  * @returns {string} El valor formateado como string.
  */
 function formatValueForHtml(value) {
-    if (value === null || value === undefined) {
+    if (value === null || value === undefined || value === '') {
         return 'N/A';
     }
     // Verifica si es un ObjectId de MongoDB y lo convierte a string hexadecimal
     if (typeof value === 'object' && value instanceof ObjectId) {
         return value.toHexString();
     }
-    // Si es una fecha, puedes formatearla si es necesario
+    // Si es una fecha, formatearla
     if (value instanceof Date) {
         return value.toLocaleDateString(); // O value.toLocaleString() para fecha y hora
     }
-    // Para otros tipos, simplemente conviértelo a string
+    // Si es un array, unirlos con coma (o un formato más específico si se requiere)
+    if (Array.isArray(value)) {
+        if (value.length === 0) return 'N/A';
+        // Esto es útil para arrays de strings/números. Para arrays de objetos, necesitarías un mapeo más complejo.
+        return value.map(item => formatValueForHtml(item)).join(', ');
+    }
+    // Si es un objeto, intentar serializarlo a string (ej. para debugging) o acceder a propiedades específicas
+    if (typeof value === 'object') {
+        // Podrías intentar mostrar una propiedad específica si sabes cuál es relevante
+        // Ejemplo: if (value.nombre) return value.nombre;
+        // O simplemente convertirlo a una representación JSON para ver su contenido
+        try {
+            // Evita stringify si es un ObjectId ya que ya se manejó
+            if (value instanceof ObjectId) return value.toHexString();
+            return JSON.stringify(value);
+        } catch (e) {
+            return '[Objeto Ilegible]';
+        }
+    }
+    // Para otros tipos (números, strings, booleans), simplemente convertirlos a string
     return value.toString();
 }
 
@@ -77,7 +97,7 @@ function generateReportContent(tipoReporte, datos) {
         case 'empleados':
             return generateEmployeeList(datos);
         case 'nomina-detalle':
-            return generatePayrollDetail(datos);
+            return generatePayrollDetail(datos); // Aquí se pasa el objeto completo 'datos'
         case 'empleados-transporte':
             return generateTransportSubsidyList(datos);
         case 'nomina-resumen':
@@ -92,9 +112,9 @@ function generateReportContent(tipoReporte, datos) {
 function generateErrorReport(errorData) {
     return `
     <div class="error-container">
-        <h2>${errorData.titulo || 'Error al generar el reporte'}</h2>
-        <p class="error-message">${errorData.mensaje || 'Ocurrió un error desconocido'}</p>
-        ${errorData.detalles ? `<div class="error-details">${errorData.detalles}</div>` : ''}
+        <h2>${formatValueForHtml(errorData.titulo)}</h2>
+        <p class="error-message">${formatValueForHtml(errorData.mensaje)}</p>
+        ${errorData.detalles ? `<div class="error-details">${formatValueForHtml(errorData.detalles)}</div>` : ''}
     </div>
     `;
 }
@@ -131,149 +151,6 @@ function generateEmployeeList(empleados) {
     return html;
 }
 
-function generatePayrollDetail(datos) { // Cambiamos el nombre del parámetro a 'datos' para ser más claro
-    // El objeto 'datos' aquí es el 'datosReporte' que se genera en index.js
-    // Contiene 'empleado', 'periodo', y 'nomina' como sub-objetos.
-
-    // Desestructuramos para facilitar el acceso
-    const { empleado, periodo, nomina } = datos;
-
-    if (!nomina || !empleado || !periodo) {
-        return `
-        <div class="no-data">
-            <p>No se encontraron datos completos de nómina para generar el reporte.</p>
-        </div>
-        `;
-    }
-
-    let html = `
-    <div class="employee-details">
-        <div class="detail-row">
-            <span class="detail-label">Empleado:</span>
-            <span>${formatValueForHtml(empleado.nombreCompleto)}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Identificación:</span>
-            <span>${formatValueForHtml(empleado.identificacion)}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Cargo:</span>
-            <span>${formatValueForHtml(empleado.cargo)}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Área:</span>
-            <span>${formatValueForHtml(empleado.area)}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Periodo:</span>
-            <span>${formatValueForHtml(periodo.nombreMes)} / ${formatValueForHtml(periodo.año)}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Fecha de Generación:</span>
-            <span>${formatValueForHtml(nomina.fecha_generacion)}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Fecha de Pago:</span>
-            <span>${formatValueForHtml(nomina.fecha_pago)}</span>
-        </div>
-        <div class="detail-row">
-            <span class="detail-label">Estado:</span>
-            <span>${formatValueForHtml(nomina.estado)}</span>
-        </div>
-    </div>
-    `;
-
-    // Sección de devengados
-    if (nomina.conceptos && nomina.conceptos.length > 0) {
-        html += `
-        <div class="earnings">
-            <h3 class="section-title">Conceptos Devengados</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Código</th>
-                        <th>Descripción</th>
-                        <th>Valor</th>
-                    </tr>
-                </thead>
-                <tbody>`;
-        
-        nomina.conceptos.forEach(concepto => {
-            html += `
-                    <tr>
-                        <td>${formatValueForHtml(concepto.codigo_concepto)}</td>
-                        <td>${formatValueForHtml(concepto.descripcion)}</td>
-                        <td>${concepto.valor !== undefined && concepto.valor !== null ? '$' + concepto.valor.toLocaleString('es-CO') : 'N/A'}</td>
-                    </tr>`;
-        });
-        
-        html += `
-                </tbody>
-            </table>
-            <div class="detail-row total">
-                <span class="detail-label">Total Devengado:</span>
-                <span>${nomina.total_devengado !== undefined && nomina.total_devengado !== null ? '$' + nomina.total_devengado.toLocaleString('es-CO') : 'N/A'}</span>
-            </div>
-        </div>`;
-    } else {
-        html += `
-        <div class="earnings">
-            <h3 class="section-title">Conceptos Devengados</h3>
-            <p>No hay conceptos devengados registrados para esta nómina.</p>
-        </div>`;
-    }
-
-    // Sección de deducciones (si hay novedades)
-    if (nomina.novedades && nomina.novedades.length > 0) {
-        html += `
-        <div class="deductions">
-            <h3 class="section-title">Novedades y Deducciones</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Código</th>
-                        <th>Descripción</th>
-                        <th>Días</th>
-                        <th>Valor</th>
-                    </tr>
-                </thead>
-                <tbody>`;
-        
-        nomina.novedades.forEach(novedad => {
-            html += `
-                    <tr>
-                        <td>${formatValueForHtml(novedad.codigo_novedad)}</td>
-                        <td>${formatValueForHtml(novedad.descripcion)}</td>
-                        <td>${formatValueForHtml(novedad.dias)}</td>
-                        <td>${novedad.valor !== undefined && novedad.valor !== null ? '$' + novedad.valor.toLocaleString('es-CO') : 'N/A'}</td>
-                    </tr>`;
-        });
-        
-        html += `
-                </tbody>
-            </table>
-            <div class="detail-row total">
-                <span class="detail-label">Total Deducciones:</span>
-                <span>${nomina.total_deducciones !== undefined && nomina.total_deducciones !== null ? '$' + nomina.total_deducciones.toLocaleString('es-CO') : 'N/A'}</span>
-            </div>
-        </div>`;
-    } else {
-        html += `
-        <div class="deductions">
-            <h3 class="section-title">Novedades y Deducciones</h3>
-            <p>No hay novedades o deducciones registradas para esta nómina.</p>
-        </div>`;
-    }
-
-    html += `
-        <div class="detail-row grand-total">
-            <span class="detail-label">Neto a Pagar:</span>
-            <span>${nomina.neto_pagar !== undefined && nomina.neto_pagar !== null ? '$' + nomina.neto_pagar.toLocaleString('es-CO') : 'N/A'}</span>
-        </div>
-    </div>`;
-
-    return html;
-}
 
 function generateTransportSubsidyList(empleados) {
     if (!empleados || empleados.length === 0) {
@@ -292,8 +169,8 @@ function generateTransportSubsidyList(empleados) {
             <td>${formatValueForHtml(emp.nombres)}</td>
             <td>${formatValueForHtml(emp.apellidos)}</td>
             <td>${formatValueForHtml(emp.identificacion)}</td>
-            <td>${emp.salario_base ? '$' + emp.salario_base.toLocaleString() : 'N/A'}</td>
-            <td>${emp.auxilio_transporte ? '$' + emp.auxilio_transporte.toLocaleString() : 'N/A'}</td>
+            <td>${emp.salario_base ? '$' + emp.salario_base.toLocaleString('es-CO') : 'N/A'}</td>
+            <td>${emp.auxilio_transporte ? '$' + emp.auxilio_transporte.toLocaleString('es-CO') : 'N/A'}</td>
         </tr>`;
     });
     
@@ -303,31 +180,109 @@ function generateTransportSubsidyList(empleados) {
     return html;
 }
 
-function generatePayrollSummary(resumen) {
-    if (!resumen || resumen.length === 0) {
-        return `
-        <div class="no-data">
-            <p>No se encontraron datos de nómina para el periodo especificado</p>
+function generatePayrollDetail(datosReporte) {
+    const empleado = datosReporte.empleado;
+    const nomina = datosReporte.nomina;
+    const periodo = datosReporte.periodo;
+
+    let html = `
+        <h2>Detalle de Nómina para ${formatValueForHtml(empleado.nombreCompleto)} (${formatValueForHtml(periodo?.mes)} / ${formatValueForHtml(periodo?.año)})</h2>
+        <div class="employee-details">
+            <div class="detail-row"><span class="detail-label">Nombre Completo:</span> <span>${formatValueForHtml(empleado.nombreCompleto)}</span></div>
+            <div class="detail-row">
+                <span class="detail-label">Tipo y No. Identificación:</span>
+                <span>${empleado.tipoIdentificacion || 'N/A'} - ${empleado.identificacion || 'N/A'}</span>
+            </div>
+            <div class="detail-row"><span class="detail-label">Cargo:</span> <span>${formatValueForHtml(empleado.cargo)}</span></div>
+            <div class="detail-row"><span class="detail-label">Área:</span> <span>${formatValueForHtml(empleado.area)}</span></div>
         </div>
-        `;
+
+        <h3>Detalles de la Nómina</h3>
+        <div class="payroll-summary-details">
+            <div class="detail-row"><span class="detail-label">Fecha de Generación:</span> <span> ${formatValueForHtml(nomina.fecha_generacion)}</span></div>
+            <div class="detail-row"><span class="detail-label">Fecha de Pago:</span> <span>${formatValueForHtml(nomina.fecha_pago)}</span></div>
+            <div class="detail-row"><span class="detail-label">Estado:</span> <span>${formatValueForHtml(nomina.estado)}</span></div>
+            <div class="detail-row"><span class="detail-label">Salario Base:</span> <span>$${(nomina.salario_base || 0).toLocaleString('es-CO')}</span></div>
+            <div class="detail-row"><span class="detail-label">Total Devengado:</span> <span>$${(nomina.total_devengado || 0).toLocaleString('es-CO')}</span></div>
+            <div class="detail-row"><span class="detail-label">Total Deducciones:</span> <span>$${(nomina.total_deducciones || 0).toLocaleString('es-CO')}</span></div>
+            <div class="detail-row"><span class="detail-label">Neto a Pagar:</span> <span>$${(nomina.neto_pagar || 0).toLocaleString('es-CO')}</span></div>
+        </div>
+        <h3>Novedades</h3>
+        ${nomina.novedades && nomina.novedades.length > 0 ? `
+        <div class="novelties">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Descripción</th>
+                        <th>Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${nomina.novedades.map(n => `
+                        <tr>
+                            <td>${formatValueForHtml(n?.descripcion)}</td>
+                            <td>$${(n?.valor || 0).toLocaleString('es-CO')}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>` : '<p>No hay novedades registradas para esta nómina.</p>'}
+    `;
+
+    return html;
+}
+
+function generatePayrollSummary(datosReporte) {
+    const resumenConceptos = datosReporte.conceptos; 
+    const periodo = datosReporte.periodo;
+    const totalGeneral = datosReporte.totalGeneral;
+
+    if (!resumenConceptos || !Array.isArray(resumenConceptos) || resumenConceptos.length === 0) {
+        return `<p>No hay conceptos de nómina para el período ${formatValueForHtml(periodo?.mes)} / ${formatValueForHtml(periodo?.año)}.</p>`;
     }
 
-    let html = '<table><thead><tr><th>Código</th><th>Concepto</th><th>Tipo</th><th>Total Valor</th><th>Cantidad Empleados</th></tr></thead><tbody>';
-    
-    resumen.forEach(item => {
+    let html = `
+        <h2>Resumen de Nómina por Concepto para ${formatValueForHtml(periodo?.mes)} / ${formatValueForHtml(periodo?.año)}</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Código</th>
+                    <th>Nombre Concepto</th>
+                    <th>Tipo</th>
+                    <th>Descripción</th>
+                    <th>Total Valor</th>
+                    <th>Cant. Empleados</th>
+                    <th>Valor Promedio</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    resumenConceptos.forEach(item => { 
         html += `
-        <tr>
-            <td>${formatValueForHtml(item.codigo_concepto)}</td>
-            <td>${formatValueForHtml(item.nombre_concepto)}</td>
-            <td>${formatValueForHtml(item.tipo_concepto)}</td>
-            <td>${item.total_valor ? '$' + item.total_valor.toLocaleString() : 'N/A'}</td>
-            <td>${formatValueForHtml(item.cantidad_empleados)}</td>
-        </tr>`;
+            <tr>
+                <td>${formatValueForHtml(item.codigo)}</td>
+                <td>${formatValueForHtml(item.nombre)}</td>
+                <td>${formatValueForHtml(item.tipo)}</td>
+                <td>${formatValueForHtml(item.descripcion)}</td>
+                <td>$${(item.total_valor || 0).toLocaleString('es-CO')}</td>
+                <td>${formatValueForHtml(item.cantidad_empleados)}</td>
+                <td>$${(item.valor_promedio || 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            </tr>
+        `;
     });
-    
-    html += '</tbody></table>';
-    html += `<div class="summary">Total conceptos: ${resumen.length}</div>`;
-    
+
+    html += `
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="4" style="text-align: right; font-weight: bold;">TOTAL GENERAL:</td>
+                    <td colspan="3" style="font-weight: bold;">$${(totalGeneral || 0).toLocaleString('es-CO')}</td>
+                </tr>
+            </tfoot>
+        </table>
+    `;
+
     return html;
 }
 
@@ -478,5 +433,9 @@ export {
     getLogoBase64,
     getCSS,
     getReportTitle,
-    generateReportContent
+    generateReportContent,
+    generateEmployeeList,
+    generateTransportSubsidyList,
+    generatePayrollDetail,
+    generatePayrollSummary,
 };
